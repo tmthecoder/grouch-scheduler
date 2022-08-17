@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::fmt::format;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -153,10 +154,7 @@ async fn read_saved(path: String) -> HashMap<i64, JoinHandle<anyhow::Result<()>>
 
 fn start_command(crn: i64, path: String) -> JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move {
-        let res = Command::new("python3")
-            .arg(path)
-            .arg("Fall")
-            .arg(format!("{}", crn))
+        let res = Command::new(format!("python3 {} Fall {}", path, crn))
             .output()
             .await?;
         println!("command out: {:?}", String::from_utf8(res.stdout));
