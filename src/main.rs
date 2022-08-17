@@ -47,15 +47,19 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         warp_runner(crn_tx.clone(), path.clone()).await
     });
-    tokio::spawn(async move {
-        warp_scheduler(crn_tx2.clone(), path2.clone()).await
-    });
+    // tokio::spawn(async move {
+    //     warp_scheduler(crn_tx2.clone(), path2.clone()).await
+    // });
     let mut crn_mapping = read_saved(path3.clone()).await;
     while let Some(operation) = crn_rx.recv().await {
         println!("CRN Map: {:?}", crn_mapping, );
         println!("Current Op: {:?}", operation);
         match operation {
             HandleOperation::Add(add_entry) => {
+                if crn_mapping.contains_key(&add_entry.crn) {
+                    let removed = crn_mapping.remove(&add_entry.crn).unwrap();
+                    removed.abort();
+                }
                 crn_mapping.insert(add_entry.crn, add_entry.handle);
             }
 
@@ -155,15 +159,21 @@ async fn read_saved(path: String) -> HashMap<i64, JoinHandle<anyhow::Result<()>>
 }
 
 fn start_command(crn: i64, path: String) -> JoinHandle<anyhow::Result<()>> {
+    let mut interval = time::interval(Duration::from_millis(60000));
     tokio::spawn(async move {
-        let res = Command::new("python3")
-            .arg(path)
-            .arg("Fall")
-            .arg(format!("{}", crn))
-            .output()
-            .await?;
-        println!("command out: {:?}", String::from_utf8(res.stdout));
-        println!("command err: {:?}", String::from_utf8(res.stderr));
+        let path = path.clone();
+        loop {
+            let path = path.clone();
+            let res = Command::new("python3")
+                .arg(path)
+                .arg("Fall")
+                .arg(format!("{}", crn))
+                .output()
+                .await?;
+            println!("command out: {:?}", String::from_utf8(res.stdout));
+            println!("command err: {:?}", String::from_utf8(res.stderr));
+            interval.tick().await;
+        }
         Ok::<(), anyhow::Error>(())
     })
 }
