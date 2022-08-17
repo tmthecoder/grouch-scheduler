@@ -132,11 +132,9 @@ async fn warp_scheduler(mod_tx: Sender<HandleOperation>, path: String) {
                     let handle = start_command(item.crn, path.clone());
                     let _ = mod_tx.send(HandleOperation::Add( CRNAddEntry { crn: item.crn, handle } )).await;
                     if item.next_idx <= idx {
-                        idx = item.next_idx;
                         interval.tick().await;
-                    } else {
-                        idx += 1;
                     }
+                    idx = item.next_idx;
                 }
             },
             _ => continue
