@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -33,15 +34,19 @@ enum HandleOperation {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut args: Vec<String> = env::args().collect();
+    let path = args.remove(0);
+    let path2 = path.clone();
+    let path3 = path.clone();
     let (crn_tx, mut crn_rx) = tokio::sync::mpsc::channel(128);
     let crn_tx2 = crn_tx.clone();
     tokio::spawn(async move {
-        warp_runner(crn_tx.clone()).await
+        warp_runner(crn_tx.clone(), path.clone()).await
     });
     tokio::spawn(async move {
-        warp_scheduler(crn_tx2.clone()).await
+        warp_scheduler(crn_tx2.clone(), path2.clone()).await
     });
-    let mut crn_mapping = read_saved().await;
+    let mut crn_mapping = read_saved(path3.clone()).await;
     println!("CRN: {:?}", crn_mapping);
     while let Some(operation) = crn_rx.recv().await {
         match operation {
@@ -78,12 +83,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn warp_runner(mod_tx: Sender<HandleOperation>) {
+async fn warp_runner(mod_tx: Sender<HandleOperation>, path: String) {
     let mod_tx2 = mod_tx.clone();
     let crn_addition = warp::path!("add" / i64).and_then(move |crn: i64| {
         let clone = mod_tx2.clone();
+        let path = path.clone();
         async move {
-            let resp = add_item(clone, crn).await;
+            let resp = add_item(clone, crn, path).await;
             if resp.status() != 200 {
                 Err(warp::reject::not_found())
             } else {
@@ -107,7 +113,7 @@ async fn warp_runner(mod_tx: Sender<HandleOperation>) {
     warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
 }
 
-async fn warp_scheduler(mod_tx: Sender<HandleOperation>,) {
+async fn warp_scheduler(mod_tx: Sender<HandleOperation>, path: String) {
     let mut interval = time::interval(Duration::from_millis(60000));
     let mut idx = 0;
 
@@ -118,7 +124,7 @@ async fn warp_scheduler(mod_tx: Sender<HandleOperation>,) {
             Ok(item) => {
                 if item.finished {
                     let _ = mod_tx.send(HandleOperation::Remove(item.crn)).await;
-                    let handle = start_command(item.crn);
+                    let handle = start_command(item.crn, path.clone());
                     let _ = mod_tx.send(HandleOperation::Add( CRNAddEntry { crn: item.crn, handle } )).await;
                     if item.next_idx <= idx {
                         idx = item.next_idx;
@@ -133,22 +139,22 @@ async fn warp_scheduler(mod_tx: Sender<HandleOperation>,) {
     }
 }
 
-async fn read_saved() -> HashMap<i64, JoinHandle<anyhow::Result<()>>> {
+async fn read_saved(path: String) -> HashMap<i64, JoinHandle<anyhow::Result<()>>> {
     let file = File::open("saved_crns.txt").await.unwrap();
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
     let mut map = HashMap::new();
     while let Some(line) = lines.next_line().await.unwrap() {
         let crn = line.parse::<i64>().unwrap();
-        map.insert(crn, start_command(crn));
+        map.insert(crn, start_command(crn, path.clone()));
     }
     map
 }
 
-fn start_command(crn: i64) -> JoinHandle<anyhow::Result<()>> {
+fn start_command(crn: i64, path: String) -> JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move {
         let res = Command::new("python3")
-            .arg("~/grouch/src/tracker.py")
+            .arg(path)
             .arg("Fall")
             .arg(format!("{}", crn))
             .output()
@@ -159,8 +165,8 @@ fn start_command(crn: i64) -> JoinHandle<anyhow::Result<()>> {
     })
 }
 
-async fn add_item(mod_tx: Sender<HandleOperation>, crn: i64) -> warp::reply::Response {
-    let handle = start_command(crn);
+async fn add_item(mod_tx: Sender<HandleOperation>, crn: i64, path: String) -> warp::reply::Response {
+    let handle = start_command(crn, path);
 
     match mod_tx.send(HandleOperation::Add(CRNAddEntry { crn, handle })).await {
         Ok(_) => warp::reply::with_status("", StatusCode::OK).into_response(),
