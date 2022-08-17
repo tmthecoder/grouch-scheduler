@@ -10,22 +10,26 @@ use tokio::time;
 use warp::{Filter, Reply};
 use warp::http::{StatusCode};
 
+#[derive(Debug)]
 struct CRNAddEntry {
     crn: i64,
     handle: JoinHandle<anyhow::Result<()>>
 }
 
+#[derive(Debug)]
 struct CRNCheckResult {
     next_idx: usize,
     crn: i64,
     finished: bool
 }
 
+#[derive(Debug)]
 struct CRNCheckItem {
     idx: usize,
     sender: tokio::sync::oneshot::Sender<CRNCheckResult>
 }
 
+#[derive(Debug)]
 enum HandleOperation {
     Add(CRNAddEntry),
     Remove(i64),
