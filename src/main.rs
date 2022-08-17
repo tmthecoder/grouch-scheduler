@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-use std::fmt::format;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -36,7 +35,7 @@ enum HandleOperation {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args: Vec<String> = env::args().collect();
-    let path = args.remove(0);
+    let path = args.remove(1);
     let path2 = path.clone();
     let path3 = path.clone();
     let (crn_tx, mut crn_rx) = tokio::sync::mpsc::channel(128);
@@ -154,7 +153,10 @@ async fn read_saved(path: String) -> HashMap<i64, JoinHandle<anyhow::Result<()>>
 
 fn start_command(crn: i64, path: String) -> JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move {
-        let res = Command::new(format!("python3 {} Fall {}", path, crn))
+        let res = Command::new("python3")
+            .arg(path)
+            .arg("Fall")
+            .arg(format!("{}", crn))
             .output()
             .await?;
         println!("command out: {:?}", String::from_utf8(res.stdout));
