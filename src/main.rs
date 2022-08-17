@@ -51,8 +51,9 @@ async fn main() -> anyhow::Result<()> {
         warp_scheduler(crn_tx2.clone(), path2.clone()).await
     });
     let mut crn_mapping = read_saved(path3.clone()).await;
-    println!("CRN: {:?}", crn_mapping);
     while let Some(operation) = crn_rx.recv().await {
+        println!("CRN Map: {:?}", crn_mapping, );
+        println!("Current Op: {:?}", operation);
         match operation {
             HandleOperation::Add(add_entry) => {
                 crn_mapping.insert(add_entry.crn, add_entry.handle);
