@@ -166,7 +166,7 @@ fn start_command(crn: i64, path: String) -> JoinHandle<anyhow::Result<()>> {
             let path = path.clone();
             let res = Command::new("python3")
                 .arg(path)
-                .arg("Fall")
+                .arg("spring")
                 .arg(format!("{}", crn))
                 .output()
                 .await?;
