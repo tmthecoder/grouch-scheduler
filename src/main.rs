@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
+use rocket::{Ignite, Rocket, routes, State};
+use rocket::http::Status;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::{Sender, Receiver};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
 use tokio::time;
-use warp::{Filter, Reply};
-use warp::http::{StatusCode};
+
+#[macro_use] extern crate rocket;
 
 #[derive(Debug)]
 struct CRNAddEntry {
@@ -45,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     let (crn_tx, mut crn_rx) = tokio::sync::mpsc::channel(128);
     let crn_tx2 = crn_tx.clone();
     tokio::spawn(async move {
-        warp_runner(crn_tx.clone(), path.clone()).await
+        let _ = rocket_runner(crn_tx.clone(), path.clone()).await;
     });
     // tokio::spawn(async move {
     //     warp_scheduler(crn_tx2.clone(), path2.clone()).await
@@ -92,37 +94,27 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn warp_runner(mod_tx: Sender<HandleOperation>, path: String) {
-    let mod_tx2 = mod_tx.clone();
-    let crn_addition = warp::path!("add" / i64).and_then(move |crn: i64| {
-        let clone = mod_tx2.clone();
-        let path = path.clone();
-        async move {
-            let resp = add_item(clone, crn, path).await;
-            if resp.status() != 200 {
-                Err(warp::reject::not_found())
-            } else {
-                Ok(resp)
-            }
-        }
-    });
-
-    let crn_removal = warp::path!("remove" / i64).and_then(move |crn: i64| {
-        let clone = mod_tx.clone();
-        async move {
-            let resp = remove_item(clone, crn).await;
-            if resp.status() != 200 {
-                Err(warp::reject::not_found())
-            } else {
-                Ok(resp)
-            }
-        }
-    });
-    let routes = crn_addition.or(crn_removal);
-    warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
+async fn rocket_runner(mod_tx: Sender<HandleOperation>, path: String) -> Rocket<Ignite> {
+    rocket::build()
+        .manage(mod_tx)
+        .manage(path)
+        .mount("/add", routes![add_crn])
+        .mount("/remove", routes![remove_crn])
+        .launch()
+        .await
+        .unwrap()
+}
+#[post("/add/<crn>")]
+async fn add_crn(crn: i64, sender: &State<Sender<HandleOperation>>, path: &State<String>) -> (Status, String) {
+    add_item((*sender).clone(), crn, (*path).clone()).await
 }
 
-async fn warp_scheduler(mod_tx: Sender<HandleOperation>, path: String) {
+#[post("/remove/<crn>")]
+async fn remove_crn(crn: i64, sender: &State<Sender<HandleOperation>>) -> (Status, String) {
+    remove_item((*sender).clone(), crn).await
+}
+
+async fn scheduler(mod_tx: Sender<HandleOperation>, path: String) {
     let mut interval = time::interval(Duration::from_millis(60000));
     let mut idx = 0;
 
@@ -178,18 +170,18 @@ fn start_command(crn: i64, path: String) -> JoinHandle<anyhow::Result<()>> {
     })
 }
 
-async fn add_item(mod_tx: Sender<HandleOperation>, crn: i64, path: String) -> warp::reply::Response {
+async fn add_item(mod_tx: Sender<HandleOperation>, crn: i64, path: String) -> (Status, String) {
     let handle = start_command(crn, path);
 
     match mod_tx.send(HandleOperation::Add(CRNAddEntry { crn, handle })).await {
-        Ok(_) => warp::reply::with_status("", StatusCode::OK).into_response(),
-        _ => warp::reply::with_status("Error generating handle", StatusCode::INTERNAL_SERVER_ERROR).into_response()
+        Ok(_) => (Status::Ok, "".into()),
+        _ =>(Status::InternalServerError, "Error generating handle".into())
     }
 }
 
-async fn remove_item(mod_tx: Sender<HandleOperation>, crn: i64) -> warp::reply::Response {
+async fn remove_item(mod_tx: Sender<HandleOperation>, crn: i64) -> (Status, String) {
     match mod_tx.send(HandleOperation::Remove(crn)).await {
-        Ok(_) => warp::reply::with_status("", StatusCode::OK).into_response(),
-        _ => warp::reply::with_status("Error sending remove handle", StatusCode::INTERNAL_SERVER_ERROR).into_response()
+        Ok(_) => (Status::Ok, "".into()),
+        _ => (Status::NotFound, "Item not found or unexpected error occurred".into())
     }
 }
